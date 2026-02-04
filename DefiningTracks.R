@@ -397,7 +397,7 @@ for( i in 1:dim(trks.tib)[1]){
 
 # Plot
 for( i in 1:dim(trks.tib)[1]){
-  a <- as_sf_points( locals_trks.tib$locals[[i]] ) %>% 
+  a <- as_sf_points( trks.tib$locals[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
     labs( title = paste0('individual =', trks$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
@@ -424,7 +424,7 @@ sumtrks[[1]]
 # This plots the actual sampling rate for each individual separately. #
 # Look at the median. What is it?  (units reported on last column)
 # Answer: 
-# 5 s
+# 5 s?
 # What about min and max? Those values give you an idea of the breaks in 
 # your data. The median allows you to work out the most common fix rate. 
 # Probably the one of interest for a lot of questions. #

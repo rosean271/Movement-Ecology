@@ -266,7 +266,7 @@ records_trans <- sf::st_transform( records_sf, st_crs( NCA_Shape ) )
 table( datadf$id, datadf$wk )
 # How many individuals have we dropped so far?
 # ANSWER: 
-# 53646
+# 1
 
 # Not all transmitters work according to our expectations.
 # We can get an idea of the data collected for each individual
@@ -348,7 +348,7 @@ for( i in 1:dim(trks.tib)[1]){
 } 
 # Which ones have migration paths?
 # Answer: 
-# All do
+# Most do (can't tell exactly)
 # Any ideas on how to remove migration data?
 # Answer: 
 # Removing data outside of the known time period of breeding or outside known breeding grounds.
@@ -394,30 +394,10 @@ for( i in 1:dim(trks.tib)[1]){
 } 
 
 # For homework plot the locals instead.
-locals_trks.tib <- trks %>%  amt::nest( data = -"id" )
-#view
-trks; locals_trks.tib
-
-# filter by NCA boundaries
-locals_trks.tib <- locals_trks.tib %>% mutate(
-  overwintering = map( data, ~ filter(., x_ < xmax ) ) )
-
-locals_trks.tib <- locals_trks.tib %>% mutate(
-  overwintering = map( breeding, ~ filter(., y_ < ymax ) ) )
-
-locals_trks.tib
-
-# filter by anything before June instead of after
-locals_trks.tib <- locals_trks.tib %>% mutate(
-  overwintering = map( overwintering, ~filter(., mth > 7 ) ),
-  migrating = map( data, ~filter(., mth > 6 ) ),
-  locals = map( migrating, ~ filter(., x_ < xmax ) ),
-  locals = map(locals, ~ filter(., y_ < ymax ) ) 
-)
 
 # Plot
-for( i in 1:dim(locals_trks.tib)[1]){
-  a <- as_sf_points( locals_trks.tib$overwintering[[i]] ) %>% 
+for( i in 1:dim(trks.tib)[1]){
+  a <- as_sf_points( locals_trks.tib$locals[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
     labs( title = paste0('individual =', trks$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
@@ -428,7 +408,8 @@ for( i in 1:dim(locals_trks.tib)[1]){
 #what do you note? are they all overwintering
 # at the NCA? which ones are? List individuals here:
 #Answer: 
-# 
+# Don't know since all the individuals are "4". Definitely not all though.
+
 # Despite us setting a sampling (fix) rate for our transmitters, bad weather, 
 # thick canopy etc can cause fix attempts to fail. Our fix rate may therefore 
 # not be exactly what we set it for. If we want measures of distance (step lengths),
@@ -442,8 +423,8 @@ sumtrks <- trks.tib %>%  summarise(
 sumtrks[[1]]
 # This plots the actual sampling rate for each individual separately. #
 # Look at the median. What is it?  (units reported on last column)
-# Answer:
-#
+# Answer: 
+# 5 s
 # What about min and max? Those values give you an idea of the breaks in 
 # your data. The median allows you to work out the most common fix rate. 
 # Probably the one of interest for a lot of questions. #
@@ -453,7 +434,7 @@ sumtrks[[1]]
 
 trks.all <- trks %>% mutate(
   # Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
-  highres = map( breeding, function(x) x %>%  
+  highres = map(breeding, function(x) x %>%  
                    track_resample( rate = seconds(5), 
                                    tolerance = seconds(4) ) ),
   #Now repeat the process but with 30 min sampling rate 

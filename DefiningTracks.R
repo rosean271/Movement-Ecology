@@ -341,14 +341,14 @@ trks; trks.tib
 for( i in 1:dim(trks.tib)[1]){
   a <- as_sf_points( trks.tib$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
+    labs( title = paste0('individual =', trks.tib$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
 } 
 # Which ones have migration paths?
 # Answer: 
-# Most do (can't tell exactly)
+# All
 # Any ideas on how to remove migration data?
 # Answer: 
 # Removing data outside of the known time period of breeding or outside known breeding grounds.
@@ -387,7 +387,7 @@ trks.tib
 for( i in 1:dim(trks.tib)[1]){
   a <- as_sf_points( trks.tib$breeding[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
+    labs( title = paste0('individual =', trks.tib$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
@@ -399,7 +399,7 @@ for( i in 1:dim(trks.tib)[1]){
 for( i in 1:dim(trks.tib)[1]){
   a <- as_sf_points( trks.tib$locals[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
-    labs( title = paste0('individual =', trks$id[i]) ) +
+    labs( title = paste0('individual =', trks.tib$id[i]) ) +
     geom_sf(data = NCA_Shape, inherit.aes = FALSE ) +
     geom_sf() 
   print(a)
@@ -408,7 +408,7 @@ for( i in 1:dim(trks.tib)[1]){
 #what do you note? are they all overwintering
 # at the NCA? which ones are? List individuals here:
 #Answer: 
-# Don't know since all the individuals are "4". Definitely not all though.
+# 9, 3, 1, 6, 5 (removed 8 after answering next question)
 
 # Despite us setting a sampling (fix) rate for our transmitters, bad weather, 
 # thick canopy etc can cause fix attempts to fail. Our fix rate may therefore 
@@ -432,15 +432,15 @@ sumtrks[[1]]
 # and RRFs and 5sec for movement questions, SSFs, iSSFs. 
 
 
-trks.all <- trks %>% mutate(
+trks.all <- trks.tib %>% mutate(
   # Here we take breeding season data and resample at 5 seconds, allowing +- 4sec:
-  highres = map(breeding, function(x) x %>%  
+  highres = map( breeding, function(x) x %>%  
                    track_resample( rate = seconds(5), 
                                    tolerance = seconds(4) ) ),
   #Now repeat the process but with 30 min sampling rate 
   red = map(breeding, function( x ) x %>%  
               track_resample( rate = minutes(30),
-                              tolerance = minutes(5) ) ) ) 
+                              tolerance = minutes(5) ) ) )
 #view
 trks.all
 #note that this creates a new set of tibbles called steps - that uses
@@ -454,17 +454,32 @@ tail( trks.breed )
 
 #you can also plot them once you unnested the resampled points for fine tune cleaning 
 trks.breed %>% 
-  #dplyr::filter( jday < 178 ) %>% 
-  as_sf_points( . ) %>% 
+  #dplyr::filter( jday < ? ) %>% 
+  as_sf_points( . )  %>% 
   #plot with ggplot
   ggplot( . ) +
-  theme_bw( base_size = 17 ) + 
+  theme_bw( base_size = 10 ) + 
   geom_sf( aes( colour = as.factor(jday) ) ) +
+  geom_sf( data = NCA_Shape, fill = NA  ) +
   #plot separate for each individual
   facet_wrap( ~id )
 
-#we remove remaining migrating tracks
-trks.breed <- trks.breed %>% dplyr::filter( jday < 178 )
+#remove remaining migrating tracks for those individuals that have them
+trks.breed <- trks.breed %>% 
+  dplyr::filter( jday < 178 )
+#check
+tail( trks.breed )
+
+#replot to check that it worked
+trks.breed %>% 
+  as_sf_points( . )  %>% 
+  #plot with ggplot
+  ggplot( . ) +
+  theme_bw( base_size = 10 ) + 
+  geom_sf( aes( colour = as.factor(jday) ) ) +
+  geom_sf( data = NCA_Shape, fill = NA  ) +
+  #plot separate for each individual
+  facet_wrap( ~id )
 
 # Now for 30min intervals
 trks.thin <- trks.all %>% dplyr::select( id, red ) %>% 
@@ -476,11 +491,33 @@ trks.mig <- trks.all %>% dplyr::select( id, migrating ) %>%
   unnest( cols = migrating ) 
 head( trks.mig )
 
-### repeat here creating the unnesting for locals!
-## remove all individuals that did not overwinter at NCA using #
-# the plot to determine which ones to keep.
-#Answer:
-#
+#overwintering birds
+trks.locals <- trks.all %>% dplyr::select( id, locals ) %>% 
+  unnest( cols = locals ) 
+head( trks.locals)
+
+### repeat process of plotting tracks for overwintering birds!
+## do you need to remove additional days? Do so if so. 
+#Answer: yes, 8 looks like it's migrating out around July
+#Plot locals here:
+#remove days
+trks.locals <- trks.locals %>% 
+  dplyr::filter( jday > 271 )
+#check
+head( trks.locals )
+
+trks.locals %>% 
+  #dplyr::filter( jday < ? ) %>% 
+  as_sf_points( . )  %>% 
+  #plot with ggplot
+  ggplot( . ) +
+  theme_bw( base_size = 10 ) + 
+  geom_sf( aes( colour = as.factor(jday) ) ) +
+  geom_sf( data = NCA_Shape, fill = NA  ) +
+  #plot separate for each individual
+  facet_wrap( ~id )
+## Save updated version of locals here:
+# write_rds( trks.locals, "Data/trks.locals")
 
 #############################################################################
 # Saving relevant objects and data ---------------------------------
@@ -494,7 +531,7 @@ write_rds( trks.thin, "Data/trks.thin" )
 write_rds( trks.mig, "Data/trks.mig" )
 ### save locals data too
 #Answer:
-#
+write_rds( trks.locals, "Data/trks.locals")
 #save shapefile of nest locations 
 sf::st_write( records_trans, "Data/nests.shp", 
               driver = "ESRI Shapefile",

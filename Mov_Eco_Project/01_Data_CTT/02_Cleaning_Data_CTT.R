@@ -24,7 +24,7 @@ rm( list = ls() )
 getwd()
 
 # load workspace 
-#load( "02_Cleaning_Data_Script.RData" )
+load( "cleaningscript.RData" )
 
 # set path to where you can access your data #
 # Note that the path will be different for your.#
@@ -261,3 +261,8 @@ for( i in 1:dim(trks.tib)[1]){
     geom_sf() 
   print(a)
 } 
+
+### Save desired results                                  #
+#if you are still getting through this script then save 
+# the workspace here so you don't have to rerun your code
+save.image( 'cleaningscript.RData' )

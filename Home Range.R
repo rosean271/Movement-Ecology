@@ -265,7 +265,7 @@ head(hr_area)
 #plot 
 hr_area %>% 
   #choose desired level 
-  filter( level == 0.95) %>% 
+  filter( level  == 0.95 ) %>% 
   ggplot( aes(x = as.character(id), y = area_km, 
               color = sex ) ) + 
   geom_point(size = 4) +
@@ -278,7 +278,7 @@ hr_area %>%
 
 # Replot this with 50% area size.
 # Add Code:
-hr_50 %>% 
+hr_50 <- hr_area %>% 
   #choose desired level 
   filter( level == 0.5 ) %>% 
   ggplot( aes(x = as.character(id), y = area_km, 
@@ -287,18 +287,53 @@ hr_50 %>%
   theme_light(base_size = 15) + 
   facet_wrap( ~estimator, nrow = 2, 
               scales = "free_y" )
+hr_50
 
 # How do individuals and sexes differ between 95 and 50% 
 # breeding ranges? # what could you tentatively say about 
 # their ecology based on these results # 
 # Answer:
-#
+# males and females have more comparable 50% ranges (males still seem to use slightly bigger areas than females), 
+#but males seem to have bigger 95% ranges in general. 
+#Tentatively, I could say that males have bigger breeding ranges than females and both sexes possibly sit on nests, though females
+#probably do more nest sitting (explaining why they have more comparable 50% areas), but maybe males do most of the foraging, 
+#which is why they roam further. The two females with extremely small 95% ranges also have very small 50% ranges, so they probably
+#spent almost 100% of the breeding season nest sitting.
 
 # optional question:
 # Adapt area size code to plot weekly changes in area size 
 # for the weekly ranges you subsetted 
 # Code Answer: 
-# 
+hr_weekly <- hr_wk %>%  select( -data ) %>% 
+  pivot_longer( hr_kde, names_to = "estimator", 
+                values_to = "hr" )
+
+#view
+hr_weekly
+# The we calculate each method 
+hr_weekly <- hr_weekly %>%  
+  mutate( hr_weekly = map( hr, ~hr_area(.)) ) %>% 
+  unnest( cols = hr_weekly )
+#convert area in m^2 to area in km^2 bc m was way too big
+hr_weekly$area_km <- hr_weekly$area / 1e6
+
+#add sex attribute 
+hr_weekly <- left_join( hr_weekly, ids, by = "id" )
+#check
+head(hr_weekly)
+#plot 
+hw <- hr_weekly %>% 
+  filter( level  == 0.95 ) %>% 
+  #plot with ggplot
+  ggplot( aes(x = as.character(wk), y = area_km, 
+              color = sex.x ) ) + 
+  geom_point(size = 4) +
+  theme_light(base_size = 15) + 
+  facet_wrap( ~id, nrow = 2, 
+              scales = "free_y" )
+print( hw )
+
+    
 
 #### end of area ##############
 
@@ -316,6 +351,7 @@ write_rds( hr_wk, "Data/hr_wk" )
 
 # save the homework plots and upload them to github 
 # Here:
-write_rds( hr_wk, "Data/hr_50" )
+write_rds( hr_50, "Data/hr_50" )
+write_rds( hw, "Data/hw" )
 
 ############# end of script  ###########################################

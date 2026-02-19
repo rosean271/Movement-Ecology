@@ -70,6 +70,7 @@ colnames( dataraw )
 # The units from Ornitela provide HDOP and #
 # time to fix information # 
 # Start by viewing what those look like in the dataset #
+#make powerpoint with figures and notes so I remember what I choose
 hist( dataraw$pdop, breaks = 50 )
 hist( dataraw$time_to_fix, main = "Time to fix" )
 
@@ -84,6 +85,7 @@ colnames( datadf )
 # Filter to remove inaccurate locations
 datadf <- datadf %>% dplyr::filter( pdop < 10 ) %>%
   dplyr::filter( time_to_fix <= 50 ) %>% 
+  #50 min is kind of long but any shorter will get rid of most of the data
   dplyr::filter( latitude > 0 ) %>% 
   dplyr::filter( fix_method == "GPS" ) %>% 
   #remove superfluous columns
@@ -137,7 +139,7 @@ datadf <- datadf %>%
 # to learn more. #
 
 # For amt, crs need to be provided using sp package so:
-crsdata <- 4326#
+crsdata <- 4326# double check
 # We also want to transform the lat longs to easting and northings #
 # using UTM. For this we need to know what zone we are in. Go: #
 # http://www.dmap.co.uk/utmworld.htm
@@ -194,11 +196,18 @@ head(trks)
 
 # Reproject to UTM to convert lat lon to easting northing
 #because it is an amt object now, we use an amt functions:
-trks <- amt::transform_coords( trks, crs_to = crstracks )
+#trks <- amt::transform_coords( trks, crs_to = crstracks )
 #note that we are still using the study area crs 
 
 #check
 head(trks)
+ggplot(data = Stopover_Shape ) + 
+  theme_bw(base_size = 14) +
+  labs( title = paste0('individual =', trks.tib$id[i]) ) +
+  geom_sf(fill = NA, linewidth = 1) +
+geom_sf( data = as_sf_points(trks), aes(color = id)) 
+  
+
 
 #Turn into a tibble list by grouping and nest by individual IDs so that 
 # we can use map function for faster processing
@@ -226,21 +235,23 @@ sf::st_bbox( Stopover_Shape )
 xmax <- as.numeric(st_bbox(Stopover_Shape)$xmax) #627081.5
 xmin <- as.numeric(st_bbox(Stopover_Shape)$xmin)
 #Then use the Northern-most and South-most coordinate to filter out data 
-ymax <- as.numeric(st_bbox(Stopover_Shape)$ymax) + 10000 #627081.5
+ymax <- as.numeric(st_bbox(Stopover_Shape)$ymax) #+ 10000 #627081.5
 ymin <- as.numeric(st_bbox(Stopover_Shape)$ymin)
 
 #subset those tracks less than as breeding and those > as migrating:
 trks.tib <- trks.tib %>% mutate(
   stopover = map( data, ~ filter(., x_ < xmax ) ) )
 
+trks.tib
 trks.tib <- trks.tib %>% mutate(
-  stopover = map( data, ~ filter(., x_ < xmin ) ) )
-
+  stopover = map( data, ~ filter(., x_ > xmin ) ) )
+trks.tib
 trks.tib <- trks.tib %>% mutate(
   stopover = map( stopover, ~ filter(., y_ < ymax ) ) )
-
+trks.tib
 trks.tib <- trks.tib %>% mutate(
-  stopover = map( stopover, ~ filter(., y_ < ymin ) ) )
+  stopover = map( stopover, ~ filter(., y_ > ymin ) ) )
+trks.tib
 
 #stopover = feb-april
 trks.tib <- trks.tib %>% mutate(

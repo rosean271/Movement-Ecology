@@ -29,7 +29,7 @@ load( "02_DataCleanRSFs.RData" )
 # the image could be shared via github, which has size restrictions #
 # Load the cropped raster here:
 #IMPORT RASTER
-cover_NCA <- raster::stack( "Data/RAPcover2021_NCA.img" )
+#cover_NCA <- raster::stack( "Data/RAPcover2021_NCA.img" )
 #Land cover classifications
 #want bigger raster area than stopover polygon (bc that area might just be ag), 
 #also should think about if I want veg cover vs land use

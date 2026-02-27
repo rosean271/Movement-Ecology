@@ -67,7 +67,7 @@ nests <- sf::st_read(  "Data/nests.shp" )
 #We cropped the vegetation cover raster to our study area so that #
 # the image could be shared via github, which has size restrictions #
 # Load the cropped raster here:
-cover_NCA <- raster::stack( "Data/RAPcover2021_NCA.img" )
+#cover_NCA <- raster::stack( "Data/RAPcover2021_NCA.img" ) #won't let me push to github with this loaded
 
 #import akde ranges you created which includes  thinned (30min) data
 akde_all <- read_rds( "Data/akde_all" )
@@ -515,4 +515,4 @@ save.image( 'DataCleanRSFs.RData' )
 
 
 ########## end of save #########################
-############### END OF SCRIPT ########################################
+############### END OF SCRIPT #######################################

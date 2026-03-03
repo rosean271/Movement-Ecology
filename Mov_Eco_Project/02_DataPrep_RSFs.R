@@ -18,10 +18,16 @@ library( corrplot ) #for plotting correlations
 # Clean your workspace to reset your R environment. #
 rm( list = ls() )
 
+getwd()
+#set working directory to source
+
 # If this is not the first time working on this script load workspace
 # to pick up where you left off
 #need to save stuff from last time
 load( "02_DataCleanRSFs.RData" )
+
+#import stopover shape
+Stopover_Shape <- sf::st_read( "01_Data_CTT/Stopover.shp") 
 
 #ADAPT
 #RESOLUTION
@@ -29,7 +35,8 @@ load( "02_DataCleanRSFs.RData" )
 # the image could be shared via github, which has size restrictions #
 # Load the cropped raster here:
 #IMPORT RASTER
-#cover_NCA <- raster::stack( "Data/RAPcover2021_NCA.img" )
+#crop_SO <- raster::stack( "01_Data_CTT/Stopover_Crop_Type.tif" )
+#figure out how to import a tif file
 #Land cover classifications
 #want bigger raster area than stopover polygon (bc that area might just be ag), 
 #also should think about if I want veg cover vs land use
@@ -38,7 +45,7 @@ load( "02_DataCleanRSFs.RData" )
 
 
 #load high resolution data for comparison?
-trks.breed <- read_rds( "Data/trks.breed" ) #trks.tib
+trks.tib <- read_rds( "01_Data_CTT/trks.tib" ) #trks.tib
 
 # We will derive available data at (1) the study area level (1st-order #
 # selection ) because my research will focus on population-level resource selection,
@@ -46,9 +53,10 @@ trks.breed <- read_rds( "Data/trks.breed" ) #trks.tib
 
 # For scales (1) and (2) of inferences we do not need high resolution #
 # data so we used our data resampled at 30 min intervals
-trks.thin <- akde_all %>% 
+trks.thin <- trks.tib %>% 
   dplyr::select( id, data ) %>% 
   unnest( cols = data ) 
+head(trks.thin)
 
 #define how many random points we want to draw per individual:
 # as factor that total points will get multiplied by
@@ -56,11 +64,14 @@ rn <- 5
 # for publication, want at least 10, but it takes too long for class. maybe will try 10
 
 #For scale/order 1 We create random points inside study area
-sa_pnts <- random_points( NCA_Shape, n = nrow( trks.thin )*rn,
+sa_pnts <- random_points( Stopover_Shape, n = nrow( trks.thin )*rn,
                           type = "random", presence = trks.thin )
 #How we are defining available habitat. Random gps points within study area of the same number
 #as used points, multiply by 5, randomly assign these points, append used points.
 #1st Order: Available space = study area
+
+######### 
+save.image( '02_DataCleanRSFs.RData' )
 
 sa_pnts
 #case: FALSE for available, TRUE for used
@@ -74,8 +85,8 @@ sa_pnts
 # defining the coordinate column to be the same as study area
 # since in previous scripts we made them match
 #start with study area scale
-sa_sf <- sf::st_as_sf( sa_pnts, coords = c("x_", "y_"), #which col are coords
-                       crs = st_crs(NCA_Shape) ) #which crs system, for own data, need to give own easting northing
+sa_sf <- sf::st_as_sf( sa_pnts, coords = c("x_", "y_"), 
+                       crs = st_crs(Stopover_Shape) ) #which crs system, for own data, need to give own easting northing
 
 #To extract raster data at used and available points, we need #
 # to turn our vector crs to crs used by the raster #

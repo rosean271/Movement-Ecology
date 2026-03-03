@@ -22,6 +22,7 @@ rm( list = ls() )
 # Set working directory. This is the path to your Rstudio folder for this 
 # project. If you are in your correct Rstudio project then it should be:
 getwd()
+#set working directory to source
 
 # load workspace 
 load( "cleaningscript.RData" )

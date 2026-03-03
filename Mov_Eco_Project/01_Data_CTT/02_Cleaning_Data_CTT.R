@@ -107,7 +107,7 @@ head( datadf ); dim( datadf )
 # We define correct format with lubridate 
 datadf$date <- lubridate::ymd_hms( datadf$time_at_fix,
                                    tz = "UTC" )
-# time should be UTC (via ornitela website)
+# time should be UTC (via CTT website)
 datadf$date <- lubridate::with_tz( datadf$date, tz = "America/Chicago" )
 #birds are captured in N Dakota and generally stay in Central Time for migration
 # and create new column where we convert it to posixct
@@ -117,15 +117,14 @@ head( datadf ); dim( datadf )
 
 # # check if any data are missing
 all( complete.cases( datadf ) )
-# # missing! What do I do?
+# # missing values
 
 # we also add month, week, and day of year information using lubridate
 datadf <- datadf %>% 
   dplyr::mutate( mth = lubridate::month(date),
                  wk = lubridate::week(date),
-                 jday = lubridate::yday(date) )
-
-# Don't know exact dates and times of capture, will have to ask Jay.
+                 jday = lubridate::yday(date),
+                 hour = lubridate::hour(date))
 
 ##################################################################
 ### Define coordinate system and projection for the data ######
@@ -139,14 +138,17 @@ datadf <- datadf %>%
 # to learn more. #
 
 # For amt, crs need to be provided using sp package so:
-crsdata <- 4326# double check
+crsdata <- 4326
 # We also want to transform the lat longs to easting and northings #
 # using UTM. For this we need to know what zone we are in. Go: #
 # http://www.dmap.co.uk/utmworld.htm
 # We are in zone 13.
 
 # Alternatively we can crs of the polygon of our study area, which is already 
-# in eastings and northings. check that is the case for your own data
+# in eastings and northings. CHECK that is the case for your own data
+sf::st_crs( Stopover_Shape ) #checks crs/easting northing. It says it's in lat long.
+#change to easting northing
+Stopover_Shape <- sf::st_transform( Stopover_Shape, "EPSG:32613")
 sf::st_crs( Stopover_Shape )
 #extract crs value for the study area (in easting northings)
 crstracks <- sf::st_crs( Stopover_Shape )
@@ -167,13 +169,14 @@ ggplot( datadf, aes( x = jday, group = id ) ) +
   theme_classic( base_size = 15 ) +
   geom_histogram( ) +
   facet_wrap( ~ id )
+#Lots of points around day 150ish. It’s about Mayish probably? Likely incubation and chick rearing time
 
 #speeds traveled
 ggplot( datadf, aes( x = speed, group = id ) ) +
   theme_classic( base_size = 15 ) +
   geom_histogram( ) +
   facet_wrap( ~ id )
-# completely blank
+# completely blank. no speeds recorded by transmitters
 
 ################
 #######################################################################
@@ -187,7 +190,7 @@ trks <- datadf %>%
   amt::make_track( .y = latitude, .x = longitude, .t = ts, 
                    #define columns that you want to keep, relabel if you need:
                    id = id, mth = mth, wk = wk,
-                   jday = jday, #speed = speed, alt = altitude, 
+                   jday = jday, hour = hour, #speed = speed, alt = altitude, 
                    #assign correct crs in lat longs (WGS84)
                    crs = crsdata )
 # remember you need to give it the original CRS first!!!!!
@@ -196,7 +199,7 @@ head(trks)
 
 # Reproject to UTM to convert lat lon to easting northing
 #because it is an amt object now, we use an amt functions:
-#trks <- amt::transform_coords( trks, crs_to = crstracks )
+trks <- amt::transform_coords( trks, crs_to = crstracks )
 #note that we are still using the study area crs 
 
 #check
@@ -205,9 +208,9 @@ ggplot(data = Stopover_Shape ) +
   theme_bw(base_size = 14) +
   labs( title = paste0('individual =', trks.tib$id[i]) ) +
   geom_sf(fill = NA, linewidth = 1) +
-geom_sf( data = as_sf_points(trks), aes(color = id)) 
+geom_sf( data = as_sf_points(trks), aes(color = id))
+#fyi: checking st_crs doesn't do anything. but we know it worked bc it looks right when plotted
   
-
 
 #Turn into a tibble list by grouping and nest by individual IDs so that 
 # we can use map function for faster processing
@@ -217,7 +220,7 @@ trks.tib <- trks %>%  amt::nest( data = -"id" )
 trks; trks.tib
 
 # Remember we have multiple types of data including detailed data for flights #
-# We plot overall paths for each individual:
+# We plot overall paths for each individual (earlier plot had them together):
 for( i in 1:dim(trks.tib)[1]){
   a <- as_sf_points( trks.tib$data[[i]] ) %>% 
     ggplot(.) + theme_bw(base_size = 17) +
@@ -232,13 +235,13 @@ for( i in 1:dim(trks.tib)[1]){
 sf::st_bbox( Stopover_Shape )
 
 #Then use the Eastern-most and Western-most coordinates to filter out data 
-xmax <- as.numeric(st_bbox(Stopover_Shape)$xmax) #627081.5
-xmin <- as.numeric(st_bbox(Stopover_Shape)$xmin)
+xmax <- as.numeric(sf::st_bbox(Stopover_Shape)$xmax) #627081.5
+xmin <- as.numeric(sf::st_bbox(Stopover_Shape)$xmin)
 #Then use the Northern-most and South-most coordinate to filter out data 
-ymax <- as.numeric(st_bbox(Stopover_Shape)$ymax) #+ 10000 #627081.5
-ymin <- as.numeric(st_bbox(Stopover_Shape)$ymin)
+ymax <- as.numeric(sf::st_bbox(Stopover_Shape)$ymax) #+ 10000 #627081.5
+ymin <- as.numeric(sf::st_bbox(Stopover_Shape)$ymin)
 
-#subset those tracks less than as breeding and those > as migrating:
+#subset tracks:
 trks.tib <- trks.tib %>% mutate(
   stopover = map( data, ~ filter(., x_ < xmax ) ) )
 
@@ -255,13 +258,18 @@ trks.tib
 
 #stopover = feb-april
 trks.tib <- trks.tib %>% mutate(
-  stopover = map( stopover, ~filter(., mth >= 2 ) ),
-  stopover = map( stopover, ~filter(., mth <= 4 ) )
-  #migrating = map( data, ~filter(., mth > 6 ) ), this is for the future
+  stopover = map( stopover, ~filter(., between(mth, 2, 4)) ),
+  roosting = map( stopover, ~filter(., hour < 7 | hour > 18)) 
+  #for my own research, checking if points were recorded at night
+  #sunset right now (mar 2) in north texas is about 6:30 and sunrise is 7 am. 
+  #will have to factor in daylight saving time though
+  #migrating = map( data, ~filter(., mth > 6 ) ), this is for the my own research
 )
 
 #check 
 trks.tib
+
+#don't need fixes to be evenly spaced
 
 # Visualization. 
 for( i in 1:dim(trks.tib)[1]){
@@ -277,3 +285,5 @@ for( i in 1:dim(trks.tib)[1]){
 #if you are still getting through this script then save 
 # the workspace here so you don't have to rerun your code
 save.image( 'cleaningscript.RData' )
+
+write_rds( trks.tib, "trks.tib")

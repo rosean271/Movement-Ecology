@@ -36,11 +36,9 @@ load( "02_DataCleanRSFs.RData" )
 #class vs even crop type maybe (crop type, can do stopover area)? May want to make stopover polygon bigger too
 #eventually
 
-#import akde ranges you created which includes  thinned (30min) data and home range 
-akde_all <- read_rds( "Data/akde_all" )
 
 #load high resolution data for comparison?
-trks.breed <- read_rds( "Data/trks.breed" )
+trks.breed <- read_rds( "Data/trks.breed" ) #trks.tib
 
 # We will derive available data at (1) the study area level (1st-order #
 # selection ) because my research will focus on population-level resource selection,

@@ -31,28 +31,20 @@ Stopover_Shape <- sf::st_read( "01_Data_CTT/Stopover.shp")
 
 #ADAPT
 #RESOLUTION
-#We cropped the vegetation cover raster to our study area so that #
+#We cropped the crop cover type raster to our study area so that #
 # the image could be shared via github, which has size restrictions #
 # Load the cropped raster here:
 #IMPORT RASTER
-#crop_SO <- raster::stack( "01_Data_CTT/Stopover_Crop_Type.tif" )
-#figure out how to import a tif file
-#Land cover classifications
-#want bigger raster area than stopover polygon (bc that area might just be ag), 
-#also should think about if I want veg cover vs land use
-#class vs even crop type maybe (crop type, can do stopover area)? May want to make stopover polygon bigger too
-#eventually
+crop_SO <- raster::stack( "01_Data_CTT/Stopover_Crop_Type.mrf" )
 
-
-#load high resolution data for comparison?
-trks.tib <- read_rds( "01_Data_CTT/trks.tib" ) #trks.tib
+#load data
+trks.tib <- read_rds( "01_Data_CTT/trks.tib" )
 
 # We will derive available data at (1) the study area level (1st-order #
 # selection ) because my research will focus on population-level resource selection,
 #even though I am only using 2 birds for the class project.
 
-# For scales (1) and (2) of inferences we do not need high resolution #
-# data so we used our data resampled at 30 min intervals
+# Unnest data
 trks.thin <- trks.tib %>% 
   dplyr::select( id, data ) %>% 
   unnest( cols = data ) 
@@ -66,6 +58,7 @@ rn <- 5
 #For scale/order 1 We create random points inside study area
 sa_pnts <- random_points( Stopover_Shape, n = nrow( trks.thin )*rn,
                           type = "random", presence = trks.thin )
+#stopover shape need to save easting northings version
 #How we are defining available habitat. Random gps points within study area of the same number
 #as used points, multiply by 5, randomly assign these points, append used points.
 #1st Order: Available space = study area

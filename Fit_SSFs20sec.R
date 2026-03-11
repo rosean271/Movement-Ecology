@@ -1,0 +1,613 @@
+##################################################################
+# Script developed by Jen Cruz to estimate SSFs and iSSFs          #
+# approach derived from Fieberg et al. 2021 and Signer et al. 2019 #
+# using code from Appendices B and C                             #
+# also vignette here:
+# https://conservancy.umn.edu/server/api/core/bitstreams/63727072-87b1-4b35-b81c-8fd31b8f1e57/content #
+# Vegetation cover  was downloaded from Rangeland Analysis Platform #
+# https://rangelands.app/products/ for 2021 and includes        #
+# % cover for shrub, perennial herbaceous, annual herbaceous    #
+# tree, litter and bare ground                                   #
+# coordinate system is WGS84 EPSG:4326, spatial resolution is 30m #
+#                                                                #
+# Prairie Falcon data was thinned to 20 seconds for 9 individuals #
+# tracked in 2021 and uses NAD83 UTM zone 11N +                   #
+# which is the same as the NCA polygon                           #
+# Jen plotted 5 sec, 10 sec, 15 sec, etc. to see which time interval was
+# good and found 20 seconds was good for smoothed data
+#two-step approach
+###################################################################
+
+################## prep workspace ###############################
+#install relevant packages
+install.packages( "circular" )
+
+# load packages relevant to this script:
+library( tidyverse ) #easy data manipulation
+# set option to see all columns and more than 10 rows
+options( dplyr.width = Inf, dplyr.print_min = 100 )
+library( amt )
+library( circular ) #for plotting von mises distribution
+
+#####################################################################
+## end of package load ###############
+
+###################################################################
+#### Load or create data -----------------------------------------
+
+# Clean your workspace to reset your R environment. #
+rm( list = ls() )
+#load 30m steps estimated for all individuals and habitat 
+# variables extracted for each step
+df_steps <- read.csv( "Data/df_steps20.csv" )
+NCA_Shape <- sf::st_read("Data/BOPNCA_Boundary.shp")
+lines20sec <- read_rds( "Data/lines20sec" )
+#Jen didn't send to us, so skip this first visualization for hw
+#she joined all tracks in a line to create lines20sec
+#import akde ranges you created which includes  thinned (30min) data
+ranges <- read_rds( "Data/akde_all" )
+
+#######################################################################
+######## preparing data ###############################################
+#let's remind ourselves what data we are looking at
+# extract akde ranges
+akdes <- ranges %>%
+  hr_to_sf( hr_akde_all, id ) %>% #turns akde ranges into sf objects
+  dplyr::filter( what == "estimate" )
+
+#hr_isopleths( akde_all$hr_akde_all )
+#skip this visualization
+ggplot(lines20sec ) +
+  theme_bw( base_size = 15 ) + 
+  theme( legend.position = "none" ) +
+  geom_sf( aes( color = as.factor(id) ),
+           linewidth = 1 ) +
+  # geom_sf(data = NCA_Shape, linewidth = 1.5,
+  #         fill=NA ) +
+  #extract isopleths for ouf model using thinned data from amt
+  geom_sf( data = akdes,
+           color = "black",
+           linewidth = 1, fill=NA ) +
+  facet_wrap( ~id)
+
+#view steps
+head( df_steps) #2 points per row bc steps, ta = turning angle, alt here is not
+#corrected for ground, so you would have to change that if you were actually using alt
+#burst id = burst + individual id
+#t1, t2 is time between first and second steps (20 sec)
+#used step and 9 available steps that match it
+#perennial, annual, shrub at 30 m resolution (reasonable for 20 sec intervals)
+#create vector of potential predictors
+prednames <- c( "annual", "perennial", "shrub" )
+
+#check for missing values
+colSums( is.na( df_steps[,prednames] ) )
+
+# Scale predictors 
+#create new dataframe to hold scaled predictors/covariates, while keeping 
+# unscaled ones for plotting later
+#puts all covariates on same scale
+#makes data comparable, improves convergence, should be standard protocol for all analysis
+#ex: if you have one covariate where one is say distance to water, which is hundreds of km
+#and one where it's on the meter scale, it would be hard to compare without scaling and 
+#models would have trouble converging. also good for interpretation when everything is standardized
+df_scl <- df_steps
+
+#scale only those columns:
+df_scl[, prednames] <- apply( df_scl[,prednames], 2, scale )
+#view
+head( df_scl)
+#now replace small amount of missing values with 0,which represents 
+# the mean for scaled predictors
+# df_scl$annual[is.na(df_scl$annual)] <- 0
+# df_scl$perennial[is.na(df_scl$perennial)] <- 0
+# df_scl$shrub[is.na(df_scl$shrub)] <- 0
+
+#for the movement parameters we also calculate the log of sl and the cos of ta
+df_scl$log_sl_ <- log( df_scl$sl_ ) #shape parameter of gamma distribution
+df_scl$cos_ta_ <- cos( df_scl$ta_ ) #relates to concentration parameter of Von mises
+# we also turn our step lengths to km instead of meters
+df_scl$sl_ <- df_scl$sl_ / 1000
+#PRFA can move up to 800 m/0.8 km in 20 sec, so like half a mile 
+#check
+hist(df_scl$sl_ )
+# we also assign weights to available points to be much greater than used points
+df_scl$weight <- 1000 ^( 1 - as.integer(df_scl$case_ ) )
+#check
+head( df_scl )
+#this was similar to rsf prep except we also prep movement parameters
+
+#### end data prep #############
+###########################################################################
+#####   running STEP SELECTION FUNCTIONS          ##########
+# We start with a traditional step selection function
+#use step_id as random intercept to account for conditional likelihood
+# we fit separate models for each individual
+mi1 <- df_scl %>% dplyr::filter( id == 1 ) %>% 
+  fit_ssf( #response variable (used or available column, y)
+    case_ ~ 
+      #habitat variable (no movement in ssf)
+      annual + perennial + shrub +
+      #stratum to ensure random steps match to each point to make it into conditional logistic regression
+      strata( step_id_ ), 
+    model = TRUE )   
+
+summary( mi1 ) #runs fast bc we scaled it
+#n = how ma points, exponentiates it for us, gives p value (pr), calculates confidence intervals
+#from p-values, we can see perennial and shrub are selected for strongly
+
+#now we fit the same model for all individuals (running sep models for each ind):
+mall <- df_scl %>% 
+  nest( data = -id ) %>% 
+  dplyr::mutate( ssf = lapply( data, function(x) {
+    x %>%  amt::fit_ssf(  case_ ~ annual + perennial + shrub +
+                            strata( step_id_ ) )
+  } ) )
+
+mall
+#we clean up and combine results to get the average selection
+# across all individuals
+d2 <- mall %>% 
+  dplyr::mutate( coef = map( ssf, 
+                             ~broom::tidy(.x$model) ) ) %>% 
+  dplyr::select( id, coef ) %>% 
+  unnest( cols = c(coef) ) %>% 
+  dplyr::mutate( id = factor(id) ) %>%
+  dplyr::group_by( term )%>% 
+  dplyr::summarize( 
+    mean = mean( estimate ), 
+    #calculate 95% CIs
+    ymin = exp(mean - 1.96 *sd(estimate)), 
+    ymax = exp(mean + 1.96 *sd(estimate) ),
+    mean = exp(mean ) )
+
+d2$x <- 1:nrow( d2 )
+
+# visualizing model results #
+# extract coefficients for each individual
+coefsall <- mall %>% 
+  dplyr::mutate( coef = map( ssf, 
+                             ~broom::tidy(.x$model) ) ) %>% 
+  dplyr::select( id, coef ) %>% 
+  unnest( cols = c(coef) ) %>% 
+  dplyr::mutate( id = factor(id),
+                 #model was logistic so have to exponentiate
+                 conf.low = exp(estimate - 1.96 * std.error),
+                 conf.high = exp(estimate + 1.96 * std.error),
+                 estimate = exp(estimate) )
+tail(coefsall)
+
+#we plot individual differences 
+pall <- coefsall %>%
+  ggplot(., aes(x = term, y = estimate, 
+                group = id, col = id ) ) +
+  #add individual results
+  geom_pointrange( aes( ymin = conf.low, 
+                        ymax = conf.high ),
+                   position = position_dodge( width = 0.7 ), size = 0.8 ) +
+  #draw line at 0
+  geom_hline( yintercept = 1, lty = 2 ) +
+  #start with population level averages we calculated earlier
+  geom_rect( mapping = aes(xmin = x - 0.4, xmax = x + 0.4, 
+                           ymin = ymin, ymax = ymax ), 
+             data = d2, 
+             inherit.aes = FALSE, fill = "grey90", alpha = 0.5) +
+  geom_segment(mapping = aes(x = x - 0.4, xend = x + 0.4, 
+                             y = mean, yend = mean ), 
+               data = d2, inherit.aes = FALSE, size = 1 ) +
+  #Add the labels to each axis
+  labs(x = "Habitat", y = "Relative Selection Strength") + 
+  theme_light()
+
+pall
+#1 = using predictors proportionate to what's available, so above is selecting for, 
+#below is selecting against, black line is population average
+# How do you interpret the results from this figure?
+# Answer:
+# annual is not selected for (average line is below 1)
+# perennial has some individuals that strongly suggest for or against
+# shrub has more individuals that select very strongly for or against
+# looking at averages, you might not say 
+#this is where you'd interpret sex
+
+# could selection be due to the amount of habitat available for each 
+# individual?
+# To answer this question we extract additional details from our steps
+# dataframe including sex and the average amount of veg cover available
+# for each individual
+
+#we create a new id df with those summary values
+iddf <- df_steps %>% 
+  group_by( id, territory, sex ) %>% 
+  summarise( annual_mean = mean( annual, na.rm = TRUE),
+             perennial_mean = mean( perennial, na.rm = TRUE),
+             shrub_mean = mean( shrub, na.rm = TRUE)
+  )
+iddf
+#turn into a long format to combine with coefs dataframe
+id_long <- iddf %>% 
+  pivot_longer( cols = ends_with( "mean" ),
+                names_to = "term",
+                values_to = "cover" )
+#view
+head( id_long )
+#modify term to match coefs by removing _mean from labels
+id_long$term <- str_split_i( id_long$term, "_",1 )
+#view
+head( id_long )
+#turn id to factor to match
+id_long$id <- as.factor( id_long$id)
+#combine with our resource selection strength estimates
+coefs_df <- left_join( id_long, coefsall, by = c("id", "term" ) )
+#view
+head(coefs_df)
+
+#plot resource selection strength by vegetation cover 
+ggplot( coefs_df,aes( x = cover , y = estimate, color = id ) ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point() +
+  geom_errorbar( aes( ymin = conf.low, 
+                      ymax = conf.high ) ) +
+  geom_hline( yintercept = 1, linewidth = 1, lty = 2 ) + 
+  facet_wrap( ~term, scales = "free", ncol = 1 )
+
+#annual = mostly cheatgrass, PRFA seem to mostly ignore it and don't select for or against
+
+#### what do you interpret from this plot?
+# is amount of vegetation influencing results?
+# Answer:
+# no, otherwise you'd see individuals selecting less or more as the predictor increases
+#or there's a "sweet spot" where individuals seem to like
+#availability doesn't seem like a driver 
+#other explanations: maybe different prey preferences or whether they are sitting on the nest or
+#hunting (sex-based differences), different hunting styles even for same prey
+#if they have different hunting styles, maybe we'd see different movement patterns/behaviors,
+#or they are moving throug certain habitat, but ssfs don't capture that
+# What about sex?
+# Answer:
+#
+
+##### end of ssf analysis #####
+############################################################
+#### iSSF analysis                                  #####
+#####################################################################
+## We saw that there are differences in how individuals are selecting#
+# habitat based on our previous analysis BUT we do not know yet #
+# the relationship between habitat and how individuals move. To #
+# explore those we shift to iSSFs using the same data            #
+################## single individual iSSF ########################
+# For homework choose a different one by modifying code below:
+mi <- df_scl %>% dplyr::filter( id == 2 ) %>% 
+  fit_issf( #response variable
+    case_ ~ 
+      #add habitat variables
+      annual + perennial + shrub +
+      #add movement variables
+      log_sl_ + cos_ta_ + sl_ + 
+      #log of sl only modifies either shape or scale (jen can't remember which, it's the alpha parameter), 
+      #sl captures the other parameter. modifying both is unnecessary, but you do need both in the model
+      # add movement interactions with shrub
+      #cos_ta modifies shape (how tortuous), but not mean
+      log_sl_:shrub + cos_ta_:shrub +
+      log_sl_:perennial + cos_ta_:perennial +
+      log_sl_:annual + cos_ta_:annual +
+      #add stratum to ensure random steps are matched to corresponding used step
+      strata( step_id_ ), model = TRUE )
+
+summary( mi )
+#focus on p values and how coeffs changed compared to ssf model
+#individual 2 had crazy strong selection for annual (exp coeff = 10)
+#bc interaction terms that were signficant were annual:log_sl and annual:cos_ta
+#suggesting this individual is moving differently in annual
+#how? will need to plot
+
+
+# We calculate the tentative distributions from empirical data 
+# for that same individual
+# Start with step length fitted as a gamma with shape and scale parameters (empirical)
+emp_d_sl <- df_scl %>% 
+  #select step lengths for that individual
+  dplyr::filter( id == 2 ) %>% 
+  dplyr::select( sl_ ) %>% 
+  #fit a gamma distribution using empirical data
+  amt::fit_distr(., dist_name = "gamma" )
+#this is regardless of habitat
+
+#Fit a von misses to the turning angles for that individual (empirical)
+emp_d_ta <- df_scl %>% 
+  #select turning angles for that individual
+  dplyr::filter( id == 2) %>% 
+  dplyr::select( ta_ ) %>% 
+  #use the amt fit_dist function
+  amt::fit_distr(., dist_name = "vonmises" )
+#regardless of habitat
+#kappa = concentration parameter, makes it fat or skinny
+
+#Assign the empirical distributions to model object bc there were missing values,
+#so give it the empirical distributions we calculated:
+#we had to do this bc the data was saved as a csv, which auto-removed empirical metrics
+mi$sl_ <- emp_d_sl
+mi$ta_ <- emp_d_ta
+# view
+mi$sl_
+mi$ta_
+
+# Now we can use coefficients associated with movement parameters
+# to update our movement related distributions for the same individual. #
+# Refer to appendix c in Fieberg et al. 2021 to see the equations that
+# are used to update distribution parameters #
+
+# we need to first relabel coefficients since we have interactions
+# Start by extracting coefficients of the model 
+b <- coef( mi )
+#choose significant interaction with habitat
+# Here I choose annual.
+# Change it depending on your individual results
+# Modify code accordingly:
+summary(mi)
+#extracts coefficients
+b_log_l <- b["log_sl_"] 
+b_log_h <- b["log_sl_"] + b["annual:log_sl_"] 
+b_sl <-  b["sl_"] 
+# Update step length distribution to the baseline when shrubs don't interact 
+# with step length:
+updated_sl_l <- update_gamma( mi$sl_, #empirical
+                              beta_sl = b_sl, #updated coefficients when habitat is not high         
+                              beta_log_sl = b_log_l )
+# Update step length distribution of how habitat alters step distribution
+updated_sl_h <- update_gamma( mi$sl_, 
+                              beta_sl = b_sl,     #updated coefficients when habitat is high     
+                              beta_log_sl = b_log_h )
+
+#view estimated parameters
+updated_sl_l;updated_sl_h
+# Are any of the parameters negative? If so then the model is ill fitted. 
+# Tal Avgar recommends to try a different step-length distribution
+# include different interactions 
+# remove non-movement steps (based on a step-length threshold )
+# resample data to coarser resolution
+
+#For turning angle, choose significant interaction if present for that 
+# individual 
+# Modify code accordingly:
+b_costa_l <- b["cos_ta_"]
+b_costa_h <- b[ "cos_ta_" ] + b["annual:cos_ta_"]
+#update turning angle distribution:
+updated_ta_l <- update_vonmises( mi$ta_,
+                                 beta_cos_ta = b_costa_l )
+updated_ta_h <- update_vonmises( mi$ta_,
+                                 beta_cos_ta = b_costa_h )
+
+#View results
+updated_ta_l
+updated_ta_h
+#Is the von Mises concentration parameter (kappa) negative? #
+# If so Tal Avgar indicates that the adjusted turn angle distribution
+# is centred at pi (180) rather than 0, meaning that the animal is 
+# more likely to turn back. 
+
+# What results did you get for your individual? 
+# Answer:
+#
+
+###### plot changes in step length distribution ###
+# data.frame for plotting
+plot_sl <- data.frame(x = rep(NA, 100))
+
+#check step lengths of chosen individual to choose your x
+hist(df_scl[ which(df_scl$id == 2),'sl_'])
+
+# x-axis is sequence of possible step lengths
+plot_sl$x <- seq(from = 0, to = 1, length.out = 100)
+#0 - 1 km, evenly spaced 100 points
+
+# y-axis is the probability density under the given gamma distribution
+# For the updated distribution when habitat is low
+plot_sl$updated_l <- dgamma(
+  x = plot_sl$x,
+  shape = updated_sl_l$params$shape,
+  scale = updated_sl_l$params$scale)
+#when habitat is high
+plot_sl$updated_h <- dgamma(
+  x = plot_sl$x,
+  shape = updated_sl_h$params$shape,
+  scale = updated_sl_h$params$scale)
+
+# Pivot from wide data to long data
+plot_sl <- plot_sl %>% 
+  pivot_longer(cols = -x)
+
+tail(plot_sl)
+# Plot
+ggplot(plot_sl, aes(x = x, y = value, color = factor(name))) +
+  geom_line(size = 1) +
+  xlim(0,1) +
+  xlab("Step Length (m)") +
+  ylab("Probability Density") +
+  scale_color_manual(name = "Distribution", 
+                     breaks = c("updated_l", "updated_h"),
+                     values = c("blue", "orange")) +
+  theme_bw()
+
+#How did the distribution change with model results?
+# Answer:
+#
+
+####  Plot turning angle distribution changes ###
+# data.frame for plotting
+plot_ta <- data.frame(x = rep(NA, 100))
+
+# x-axis is sequence of possible step lengths
+plot_ta$x <- seq(from = -1 * pi, to = pi, length.out = 100)
+
+# y-axis is the probability density under the given von Mises distribution
+# For low habitat
+plot_ta$updated_l <- circular::dvonmises(
+  x = plot_ta$x, 
+  mu = updated_ta_l$params$mu,
+  kappa = updated_ta_l$params$kappa)
+
+# For high habitat
+plot_ta$updated_h <- circular::dvonmises(
+  x = plot_ta$x, 
+  mu = updated_ta_h$params$mu,
+  kappa = updated_ta_h$params$kappa)
+
+# Pivot from wide data to long data
+plot_ta <- plot_ta %>% 
+  pivot_longer(cols = -x)
+
+tail(plot_ta)
+# Plot
+ggplot(plot_ta, aes(x = x, y = value, color = factor(name))) +
+  geom_line(size = 1) +
+  coord_cartesian(ylim = c(0, 0.75)) +
+  xlab("Relative Turn Angle (radians)") +
+  ylab("Probability Density") +
+  scale_x_continuous(breaks = c(-pi, -pi/2, 0, pi/2, pi),
+                     labels = c(expression(-pi, -pi/2, 0, pi/2, pi))) +
+  scale_color_manual(name = "Distribution", 
+                     breaks = c("updated_l", "updated_h"),
+                     values = c("blue", "orange")) +
+  theme_bw()
+
+#How do you interpret output for these last two plots?
+# Did habitat and movement parameters interact to alter how #
+# Prairie falcons use their landscape ?
+# Answer:
+#
+# Add answer for the new individual that you tried for homework
+#
+#
+##### end of single individual issf ####
+########################################################################
+######### All individual issfs ####################################
+
+# Repeat the analysis for all individuals at the same time #
+miall2 <- df_scl %>% 
+  nest( data = -id ) %>% 
+  dplyr::mutate( issf = lapply( data, function(x) {
+    x %>%  amt::fit_issf(  case_ ~ 
+                             #add habitat variables
+                             annual + perennial + shrub +
+                             #add movement variables
+                             log_sl_ + cos_ta_ + sl_ +
+                             # add movement interactions with shrub
+                             log_sl_:shrub + cos_ta_:shrub +
+                             log_sl_:perennial + cos_ta_:perennial +
+                             log_sl_:annual + cos_ta_:annual +
+                             #add stratum to ensure random steps are matched to corresponding used step
+                             strata( step_id_ ), model = TRUE )
+  } ) )
+
+miall2
+
+# Extract coefficients for all indviduals
+coefs_issf2  <- miall2 %>% 
+  dplyr::mutate( coef = map( issf, 
+                             ~broom::tidy(.x$model) ) ) %>% 
+  dplyr::select( id, coef ) %>% 
+  unnest( cols = c(coef) ) %>% 
+  dplyr::mutate( id = factor(id),
+                 conf.low = exp( estimate - 1.96 * std.error),
+                 conf.high = exp(estimate + 1.96 * std.error),
+                 estimate = exp(estimate))
+#view results
+coefs_issf2
+
+#average across individuals
+d4 <- miall2 %>% 
+  dplyr::mutate( coef = map( issf, 
+                             ~broom::tidy(.x$model) ) ) %>% 
+  dplyr::select( id, coef ) %>% 
+  unnest( cols = c(coef) ) %>% 
+  dplyr::mutate( id = factor(id) ) %>%
+  dplyr::group_by( term )%>% 
+  dplyr::summarize( 
+    mean = mean( estimate ), 
+    #calculate 95% CIs
+    ymin = exp(mean - 1.96 *sd(estimate)), 
+    ymax = exp(mean + 1.96 *sd(estimate)),
+    mean = exp( mean ), )
+
+d4$x <- 1:nrow( d4 )
+
+# Plot individual differences and population averages 
+pissfs2 <- coefs_issf2 %>%
+  #dplyr::filter(id %in% 3:9 ) %>% 
+  ggplot(., aes(x = term, y = estimate, 
+                group = id, col = id ) ) +
+  #add individual results
+  geom_pointrange( aes( ymin = conf.low, 
+                        ymax = conf.high ),
+                   position = position_dodge( width = 0.7 ), size = 0.8 ) +
+  #draw line at 0
+  geom_hline( yintercept = 1, lty = 2 ) +
+  #start with population level averages we calculated earlier
+  geom_rect( mapping = aes(xmin = x - 0.4, xmax = x + 0.4, 
+                           ymin = ymin, ymax = ymax ), 
+             data = d4, 
+             inherit.aes = FALSE, fill = "grey90", alpha = 0.5) +
+  geom_segment(mapping = aes(x = x - 0.4, xend = x + 0.4, 
+                             y = mean, yend = mean ), 
+               data = d4, inherit.aes = FALSE, size = 1 ) +
+  #Add the labels to each axis
+  labs(x = "Predictors", y = "Relative Selection Strength") + 
+  theme_light() +
+  #ylim( c( 0,5)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+pissfs2
+#model may have failed bc some individuals have crazy confidence intervals and values
+#produced are unrealistic
+#should start to worry if ci is more than 10
+#you may have overparameterized and model is too complicated
+#either have to simplify for everyone or take out the two individuals 
+#(BUT our sample size is too small already)
+#OR put all individuals in same model with random slopes (will do that next week)
+#Note: can't fit a model with just interaction effects (when there's two coeff together) 
+#without main effects ever
+
+
+#view
+head( id_long )
+#combine with our resource selection strength estimates
+coefs_df <- left_join( id_long, coefs_issf2, by = c("id", "term" ) )
+#view
+head(coefs_df)
+
+#plot resource selection strength by vegetation cover (right now we will just remove 2 ind)
+coefs_df %>%
+  dplyr::filter(id %in% 3:9 ) %>% 
+  ggplot( .,aes( x = cover , y = estimate, color = id ) ) +
+  theme_classic( base_size = 15 ) +
+  labs( x = "Mean cover (%)", 
+        y = "Resource selection strength" ) +
+  geom_point() +
+  geom_errorbar( aes( ymin = conf.low, 
+                      ymax = conf.high ) ) +
+  geom_hline( yintercept = 1, linewidth = 1, lty = 2 ) + 
+  facet_wrap( ~term, scales = "free", ncol = 3 )
+#for shrub, you can see that areas with more shrub, esp at 16%, have PRFA selecting against
+#16% vs 8% shrub is actually a pretty significant difference in the landscape
+
+
+### what are the weaknesses of averaging separate individual models #
+# in this way? #
+# Answer:
+# 
+
+# What is a posible solution to the weakness you stated above?
+# Answer:
+# 
+##########################################################################
+### Save desired results   #
+#we save the scaled dataframe so that we can use it for our random effects
+write.csv(df_scl, "Data/df_scl.csv"  )
+#save workspace if in progress
+save.image( 'SSF_results.RData'  )
+
+############# end of script  ##################################

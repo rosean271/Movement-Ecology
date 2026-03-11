@@ -26,8 +26,10 @@ getwd()
 #need to save stuff from last time
 load( "02_DataCleanRSFs.RData" )
 
-#import stopover shape
+#import stopover shape and change to eastings northings to match data
 Stopover_Shape <- sf::st_read( "01_Data_CTT/Stopover.shp") 
+Stopover_Shape <- sf::st_transform( Stopover_Shape, "EPSG:32613")
+sf::st_crs( Stopover_Shape )
 
 #ADAPT
 #RESOLUTION
@@ -58,13 +60,11 @@ rn <- 5
 #For scale/order 1 We create random points inside study area
 sa_pnts <- random_points( Stopover_Shape, n = nrow( trks.thin )*rn,
                           type = "random", presence = trks.thin )
+#ids?
 #stopover shape need to save easting northings version
 #How we are defining available habitat. Random gps points within study area of the same number
 #as used points, multiply by 5, randomly assign these points, append used points.
 #1st Order: Available space = study area
-
-######### 
-save.image( '02_DataCleanRSFs.RData' )
 
 sa_pnts
 #case: FALSE for available, TRUE for used
@@ -79,7 +79,9 @@ sa_pnts
 # since in previous scripts we made them match
 #start with study area scale
 sa_sf <- sf::st_as_sf( sa_pnts, coords = c("x_", "y_"), 
-                       crs = st_crs(Stopover_Shape) ) #which crs system, for own data, need to give own easting northing
+                       crs = st_crs("EPSG:32613") ) #which crs system, for own data, need to give own easting northing
+sf::st_crs( sa_sf )
+sa_sf
 
 #To extract raster data at used and available points, we need #
 # to turn our vector crs to crs used by the raster #
@@ -87,23 +89,35 @@ sa_sf <- sf::st_as_sf( sa_pnts, coords = c("x_", "y_"),
 #otherwise you'll distort the shape of your rasters
 
 #now for points at scale 1:
-sa_trans  <- sf::st_transform( sa_sf, st_crs( cover_NCA ) ) #now in lat longs
+sa_trans  <- sf::st_transform( sa_sf, st_crs( crop_SO ) ) 
+#I downloaded the data in easting northings zone 13, so this step is redundant,
+#but should I have downloaded it in WGS84? 
+#Or bc it was already in easting northings that's fine? Basically,
+#does the habitat raster have to be in lat long? 
+sa_trans
 
 ###### Let's check that our raster is suitable for use ###
 #view raster attributes
-cover_NCA
+crop_SO
+#doesn't seem to have layers. it's all pixels. Looking for another source
+
+######### 
+save.image( '02_DataCleanRSFs.RData' )
 #note that names of vegetation layers did not save so we add them:
-names(cover_NCA) <- c( "annual", "perennial", "shrub" )
+names(crop_SO) <- c( "annual", "perennial", "shrub" )
 #processes data at all layers of vegetation cover at the same time, but the layers don't have names
+#since it's all one layer, I'd have to assign each value to it's correct crop counterpart
+#what they choose based on the value of the pixel underneath
+#OR I'd have to merge all the data layers into one stack, but it's still not percentage
 
 #we visualize vegetation rasters
 #ggplot now also lets you plot rasters
 #tm_shape let's you select the object you want to plot
-tm_shape( cover_NCA ) +
+tm_shape( crop_SO ) +
   #how you want to plot it. plot raster and call it "cover"
-  tm_raster( title = "cover (%)" ) + 
+  tm_raster( title = "crop (%)" ) + 
   #here you select the NCA polygon to overlay
-  tm_shape( NCA_Shape ) +
+  tm_shape( Stopover_Shape   ) +
   #choose to plot the outline in black (giving study area border)
   tm_borders( lwd = 3, col = "black" )
 
@@ -114,7 +128,7 @@ tm_shape( cover_NCA ) +
 # We choose 3 scales 
 ##########
 #the finest resolution is 30 x 30 m cells extracting value at the cell
-sa_cover_30m <- raster::extract( x = cover_NCA, sa_trans, #specify raster package bc terra also has an extract function
+sa_cover_30m <- raster::extract( x = crop_SO, sa_trans, #specify raster package bc terra also has an extract function
                                  #sa_trans is the raster stack used
                                  method = "simple" ) #whichever cell point falls under, it extracts at the finest resolution (30 m) there
 colnames(sa_cover_30m) <- paste( colnames(sa_cover_30m),

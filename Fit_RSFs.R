@@ -60,7 +60,10 @@ sa_scl[, prednames] <- apply( sa_scl[,prednames], 2, scale )
 head( sa_scl)
 # why do we scale predictors?
 # Answer:
-# To put it only a distribution curve to standardize everything?
+# makes data comparable, improves convergence, should be standard protocol for all analysis
+#ex: if you have one covariate where one is say distance to water, which is hundreds of km
+#and one where it's on the meter scale, it would be hard to compare without scaling and 
+#models would have trouble converging. also good for interpretation when everything is standardized
 
 #now check for missing values
 colSums( is.na( sa_scl[,prednames] ) )

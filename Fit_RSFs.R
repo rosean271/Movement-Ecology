@@ -161,6 +161,11 @@ apply( df_sa[,prednames], 2, mean )
 
 # So a Prarie Falcon will be 1.4 times more likely to use an area with 10 %
 # shrub than 2.8 % shrub when annual is 19% and perennial is 13.5 % (mean values)
+#if we have two points with the same annual and perennial, but one has 1 less unit of
+#shrub (the standard deviation bc scaled, and so mean minus sd, is the prfa more likely to choose point with 
+#1 more unit shrub
+#just one way to explain/interpret the results, but it's not the only way to explain
+#you could for ex say just look at the exp values and say the prfa is more likely to use shrub
 
 #What would be the equivalent statement for annual?
 # Answer: 

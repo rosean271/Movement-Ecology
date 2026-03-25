@@ -30,8 +30,9 @@ library( circular ) #for plotting von mises distribution
 ###################################################################
 #### Load or create data -----------------------------------------
 
-# Clean your workspace to reset your R environment. #
+# Clean your workspace to reset your R environment. Set WD #
 rm( list = ls() )
+load('SSF_iSSF.RData')
 #load 20sec steps estimated for all individuals 
 df_steps <- read.csv( "Data/df_steps20.csv" )
 # load 20sec steps with scaled predictors that we made last week
@@ -44,13 +45,14 @@ head( df_steps)
 head( df_scl)
 #recheck sample size:
 table( df_steps$id )
+table(df_steps$step_id_, df_steps$id)
 #can address the uneven sample sizes with random effects
 
 #step id for all individuals are the same (so each individual has a set of steps that have step id 3, for example)
 #bc amt assumes you're running ind separately
 #so we need to create unique step ids
-df_steps$step_id_id <- paste(df_steps$id, df_steps$step_id_, sep = "_")
-df_scl$step_id_id <- paste(df_scl$id, df_scl$step_id_, sep = "_")
+df_steps$id_step_id <- paste(df_steps$id, df_steps$step_id_, sep = "_" )
+df_scl$id_step_id <- paste(df_scl$id, df_scl$step_id_, sep = "_" )
 
 #########################################################################
 #######  fit movement model for all individuals in glmmTMB ############
@@ -64,7 +66,7 @@ m1 <- glmmTMB( case_ ~ 1 + annual + perennial + shrub + #1 is intercept (proport
                  #define random effects (step_id is value that matches each used point to its available
                  #was strata in last week's code to tell model it's conditional)
                  #give random intercept for each unique set of steps so it doesn't estimate them for thousands of sets of steps
-                 ( 1| step_id_ ) +
+                 ( 1| id_step_id ) +
                  # add random slopes for habitat variables
                  #very data hungry, so start with simplest model to test if it will fail
                  #since we're focusing on differences between individuals, we want the ind id to
@@ -105,7 +107,7 @@ m2 <- glmmTMB( case_ ~ 1 +
                  log_sl_*shrub + cos_ta_*shrub +
                  #add random intercept for step id (stratum)
                  #to ensure pairing of random steps to their used step
-                 ( 1| step_id_ ) +
+                 ( 1| id_step_id ) +
                  #define random slopes for habitat
                  ( 0 + annual | id ) +
                  ( 0 + perennial | id ) +
@@ -122,9 +124,9 @@ summary( m2 )
 
 #now incorporate interactions between movement parameters and habitat
 #at the individual level 
-m3 <- glmmTMB( case_ ~ 1 + 
+m3 <- glmmTMB::glmmTMB( case_ ~ 1 + 
                  #add habitat predictors
-                 annual + perennial + shrub + 
+                 perennial + annual + shrub + 
                  #add movement parameters
                  sl_ + log_sl_ + cos_ta_ +
                  # add movement interactions with habitat
@@ -133,7 +135,7 @@ m3 <- glmmTMB( case_ ~ 1 +
                  log_sl_*shrub + cos_ta_*shrub +
                  #add random intercept for step id (stratum)
                  #to ensure pairing of random steps to their used step
-                 ( 1| step_id_ ) +
+                 ( 1| id_step_id ) +
                  #define random slopes for habitat
                  ( 0 + annual | id ) +
                  ( 0 + perennial | id ) +
@@ -165,7 +167,7 @@ anova(m1,m2, m3)
 # m3
 # How do you interpret results of model comparison?
 # Answer:
-#
+# lowest aic score is "best fit model"
 
 ################### visualizing top model results ############
 # select top model
@@ -179,23 +181,25 @@ fix.efs <- fixef( mr )$cond
 #view
 fix.efs
 
-#we need to add the fixed effect to the random for each vegetation 
+#we need to add (sum up) the fixed effect to all the random for each vegetation type
 # and exponentiate our results
 #make sure that the random and fixed effect order match 
 rss <- ran.efs
 # run a loop to do this
 for (i in seq_along(fix.efs)) {
-  rss[, i] <- rss[, i] + fix.efs[i+1] # i is specifying the column
+  rss[ ,i] <- rss[ ,i] + fix.efs[i+1] # i is specifying the column
 }
+#"Error in `[.data.frame`(rss, , i) : undefined columns selected" but works anyways?
 
 #create id column
 rss$id <- as.numeric(  rownames( rss ) )
 #view
-round(rss,2)
+round(rss,2) #round to two dec places
 ### how do you interpret this table? which predictors vary among individuals?
 # Answer:
-#no variability in selection for annual among individuals
+#no variability in selection for perennial among individuals
 #some of them have differences, eg moving faster or slower through shrub compared to population mean
+# (in class, annual was the one with no variability (-0.1 the whole way down), because Jen mislabelled our homework data csv lol)
 
 # now extract additional details from our steps dataframe to combine 
 # with our results
@@ -226,7 +230,7 @@ ggplot( iddf ) +
 # Random slopes?
 # How?
 # Answer:
-#
+# Yes. The mean effect size of resource selection strength is low enough that we could conclude there's no selection for shrub, but we lose individual variation in the interpretation.
 ########### visualize the movement distributions #######
 # We calculate the tentative distributions from empirical data 
 # Start with step length fitted as a gamma with shape and scale parameters
@@ -247,15 +251,15 @@ emp_d_ta
 
 # update sl distribution parameters for an individual that is most strongly selecting perennial
 #that would include the main effect log(sl_) and the interaction log(sl_):perennial term
-b_log_sl <- rss[4,"log(sl_)"] + rss[4,"log(sl_):perennial"]
-b_sl <-  rss[4,"sl_"]
+b_log_sl <- rss[9, "log(sl_)"] + rss[9,"log(sl_):annual"]
+b_sl <-  rss[9,"sl_"]
 #update sl distribution
 updated_sl <- update_gamma( emp_d_sl,
                             beta_sl = b_sl,          
                             beta_log_sl = b_log_sl )
 #update the turning angle distribution parameters for same individual by once
 # again including the main effect cos(ta_) and interaction cos(ta_):perennial 
-b_costa <- rss[4, "cos(ta_)"] + rss[4,"cos(ta_):perennial"]
+b_costa <- rss[9, "cos(ta_)"] + rss[9,"cos(ta_):annual"]
 #update turning angle distribution:
 updated_ta <- update_vonmises( emp_d_ta,
                                beta_cos_ta = b_costa )
@@ -279,7 +283,7 @@ updated_ta
 plot_sl <- data.frame(x = rep(NA, 100))
 
 #check step lenghts of chosen individual to choose your x
-hist(df_scl[ which(df_scl$id == 2),'sl_'])
+hist(df_scl[ which(df_scl$id == 9),'sl_'])
 
 # x-axis is sequence of possible step lengths
 plot_sl$x <- seq(from = 0, to = 1, length.out = 100)
@@ -350,9 +354,10 @@ ggplot(data = plot_ta) +
 ### for homework plot a different individual that also had strong selection (or
 #avoidance)
 # Answer:::
+# plotted annual (supposed to be perennial) for ind 9. Updated step length distribution is very slightly shifted to the right, so very slightly faster in annual. slightly more directed in annual (grey line slightly narrow for von mises distribution).
 
 ############### save section ######################################
 #save workspace if in progress
-save.image( 'iSSF_refs_results.RData'  )
+save.image('SSF_iSSF.RData')
 
 ################## end of script #####################################
